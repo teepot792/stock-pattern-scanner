@@ -2,7 +2,48 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+import time
 from datetime import datetime
+
+# --- Selenium Scraper for Finviz ---
+def get_finviz_tickers_selenium(pages=1):
+    tickers = []
+    options = Options()
+    options.add_argument("--headless")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1920x1080")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+
+    try:
+        for page in range(pages):
+            start_row = 1 + page * 20
+            url = f"https://finviz.com/screener.ashx?v=111&f=cap_microunder,sh_float_u10,sh_short_o10&ft=4&r={start_row}"
+            driver.get(url)
+            time.sleep(2)
+
+            rows = driver.find_elements(By.CSS_SELECTOR, "table.table-light tr[valign='top']")
+
+            for row in rows:
+                try:
+                    cells = row.find_elements(By.TAG_NAME, "td")
+                    if len(cells) > 1:
+                        ticker = cells[1].text.strip()
+                        tickers.append(ticker)
+                except Exception as e:
+                    print(f"Error parsing row: {e}")
+
+    finally:
+        driver.quit()
+
+    return list(set(tickers))
 
 # --- Pattern Detection Logic ---
 def detect_u_pattern(df):
@@ -47,17 +88,11 @@ def plot_candlestick(df, ticker, pattern_points):
 st.set_page_config(page_title="Stock Pattern Scanner", layout="wide")
 st.title("📉 Stock Pattern Scanner (U → ∩ → Drop)")
 
-# --- CSV Upload ---
-uploaded_file = st.file_uploader("📥 Upload CSV with Tickers (column: Ticker)", type=["csv"])
-
-if uploaded_file:
-    df_uploaded = pd.read_csv(uploaded_file)
-    tickers = df_uploaded['Ticker'].dropna().unique().tolist()
-else:
-    tickers = []
+with st.spinner("Fetching tickers from Finviz using Selenium..."):
+    tickers = get_finviz_tickers_selenium(pages=2)
 
 if not tickers:
-    st.warning("⚠️ No tickers found. Please upload a valid CSV with a 'Ticker' column.")
+    st.warning("⚠️ No tickers found. Try refreshing or check if Finviz is blocking the request.")
 else:
     for ticker in tickers:
         try:
