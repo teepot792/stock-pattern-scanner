@@ -2,17 +2,31 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
-from finvizfinance.screener.overview import Overview
-from datetime import datetime
+from bs4 import BeautifulSoup
+import requests
 
-# --- Scrape tickers from Finviz using finvizfinance ---
+# --- Scrape tickers from Finviz screener directly ---
 def get_finviz_tickers():
-    filters = ['cap_microunder', 'sh_float_u10', 'sh_short_o10']
-    overview = Overview()
-    overview.set_filter(*filters)
-    screener_df = overview.screener_view()
-    tickers = screener_df['Ticker'].tolist()
-    return tickers
+    tickers = []
+    headers = {"User-Agent": "Mozilla/5.0"}
+
+    for page in range(0, 3):  # Adjust number of pages as needed
+        url = f"https://finviz.com/screener.ashx?v=111&f=cap_microunder,sh_float_u10,sh_short_o10&ft=4&r={1 + page * 20}"
+        response = requests.get(url, headers=headers)
+        soup = BeautifulSoup(response.content, "html.parser")
+
+        table = soup.find("table", class_="table-light")
+        if not table:
+            continue
+
+        rows = table.find_all("tr", class_=["table-dark-row", "table-light-row"])
+        for row in rows:
+            cols = row.find_all("td")
+            if len(cols) > 1:
+                ticker = cols[1].text.strip()
+                tickers.append(ticker)
+
+    return list(set(tickers))
 
 # --- Pattern Detection Logic ---
 def detect_u_pattern(df):
@@ -31,7 +45,7 @@ def detect_u_pattern(df):
             pattern_points.append((min1, max1, min2, i + 9))
     return pattern_points
 
-# --- Candlestick Plot ---
+# --- Plotting ---
 def plot_candlestick(df, ticker, pattern_points):
     fig = go.Figure()
     fig.add_trace(go.Candlestick(
@@ -57,11 +71,11 @@ def plot_candlestick(df, ticker, pattern_points):
 st.set_page_config(page_title="Stock Pattern Scanner", layout="wide")
 st.title("📉 Stock Pattern Scanner (U → ∩ → Drop)")
 
-with st.spinner("Fetching tickers from Finviz..."):
+with st.spinner("🔍 Fetching tickers from Finviz..."):
     try:
         tickers = get_finviz_tickers()
     except Exception as e:
-        st.error(f"Error fetching tickers from Finviz: {e}")
+        st.error(f"❌ Error fetching tickers: {e}")
         tickers = []
 
 if not tickers:
