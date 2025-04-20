@@ -15,14 +15,23 @@ def fetch_finviz_tickers():
     tickers = []
 
     try:
-        table = soup.find_all("table", class_="table-light")[0]
-        rows = table.find_all("tr")[1:]  # skip header
+        # Find the table that contains the tickers
+        tables = soup.find_all("table", class_="table-light")
+        if not tables:
+            raise ValueError("No tables with class 'table-light' found.")
 
-        for row in rows:
-            cells = row.find_all("td")
-            if len(cells) > 1:
-                ticker = cells[1].text.strip()
-                tickers.append(ticker)
+        for table in tables:
+            rows = table.find_all("tr")[1:]  # Skip the header row
+            for row in rows:
+                cells = row.find_all("td")
+                if len(cells) > 1:
+                    ticker = cells[1].get_text(strip=True)
+                    if ticker.isalpha():
+                        tickers.append(ticker)
+
+        if not tickers:
+            raise ValueError("No tickers extracted from the page.")
+
     except Exception as e:
         st.error(f"Error fetching tickers from Finviz: {e}")
 
