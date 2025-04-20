@@ -1,49 +1,61 @@
+import yfinance as yf
+import pandas as pd
 import streamlit as st
-import requests
-from bs4 import BeautifulSoup
 
-# --- Helper Function to Scrape Tickers from Finviz ---
-def get_finviz_tickers():
-    tickers = []
-    headers = {"User-Agent": "Mozilla/5.0"}
+st.set_page_config(page_title="Low-Float Momentum Scanner", layout="wide")
 
-    try:
-        for page in range(0, 2):  # First 2 pages (adjust as needed)
-            url = f"https://finviz.com/screener.ashx?v=111&f=cap_microunder,sh_float_u10,sh_short_o10&ft=4&r={1 + page * 20}"
-            st.write(f"Scraping: {url}")
-            response = requests.get(url, headers=headers, timeout=10)
-            soup = BeautifulSoup(response.content, "html.parser")
+st.title("📈 Low-Float Momentum Scanner")
+st.caption("Detects fast-moving, low-float, low-market-cap stocks in real time.")
 
-            # Try multiple possible table class names
-            table = soup.find("table", class_="screener-view-table") or soup.find("table", class_="table-light")
-            if not table:
-                st.warning("❌ No screener table found.")
+# Input tickers
+tickers_input = st.text_input("Enter tickers (comma-separated):", "HOLO,GNS,ILAG,HUDI,TOP,MEGL,SNTG")
+tickers = [t.strip().upper() for t in tickers_input.split(",")]
+
+def get_momentum_stocks(ticker_list):
+    results = []
+
+    for ticker in ticker_list:
+        try:
+            stock = yf.Ticker(ticker)
+            hist = stock.history(period="1d", interval="5m")
+
+            if len(hist) < 2:
                 continue
 
-            rows = table.find_all("tr", class_=["table-dark-row", "table-light-row"])
-            for row in rows:
-                cols = row.find_all("td")
-                if len(cols) > 1:
-                    ticker = cols[1].text.strip()
-                    tickers.append(ticker)
+            # Calculate momentum
+            last_close = hist["Close"].iloc[-1]
+            prev_close = hist["Close"].iloc[-2]
+            percent_change = ((last_close - prev_close) / prev_close) * 100
 
-        return list(set(tickers))
-    except Exception as e:
-        st.error(f"Error fetching tickers from Finviz: {e}")
-        return []
+            # Apply filters
+            if percent_change > 5:
+                info = stock.info
+                market_cap = info.get("marketCap", 0)
+                float_shares = info.get("floatShares", 0)
+                shares_outstanding = info.get("sharesOutstanding", 0)
 
-# --- Streamlit App ---
-st.set_page_config(page_title="Finviz Screener Tickers", layout="centered")
-st.title("📈 Finviz Screener Tickers with Trading212 Links")
+                if market_cap and market_cap < 20_000_000 and float_shares and float_shares < 10_000_000:
+                    trading212_url = f"https://www.trading212.com/en/invest/instruments/{ticker}"
+                    results.append({
+                        "Ticker": ticker,
+                        "Price": round(last_close, 4),
+                        "% Change (5m)": round(percent_change, 2),
+                        "Market Cap": market_cap,
+                        "Float": float_shares,
+                        "Outstanding": shares_outstanding,
+                        "Trading212 Link": trading212_url
+                    })
+        except Exception as e:
+            st.warning(f"Error loading {ticker}: {e}")
 
-with st.spinner("Fetching tickers from Finviz..."):
-    tickers = get_finviz_tickers()
+    return pd.DataFrame(results)
 
-if not tickers:
-    st.warning("⚠️ No tickers found. Try refreshing or check if Finviz is blocking the request.")
-    st.info("🔗 You can still visit [Finviz Screener](https://finviz.com/screener.ashx?v=111&f=cap_microunder,sh_float_u10,sh_short_o10&ft=4) manually.")
-else:
-    st.success(f"✅ Found {len(tickers)} tickers.")
-    for ticker in sorted(tickers):
-        t212_url = f"https://www.trading212.com/trading-instruments/invest/{ticker}.US"
-        st.markdown(f"**{ticker}**: [View on Trading212]({t212_url})", unsafe_allow_html=True)
+# Run scanner
+if st.button("🚀 Run Scanner"):
+    data = get_momentum_stocks(tickers)
+
+    if not data.empty:
+        data["Trading212 Link"] = data["Trading212 Link"].apply(lambda x: f"[Link]({x})")
+        st.dataframe(data.to_html(escape=False, index=False), unsafe_allow_html=True)
+    else:
+        st.info("No momentum stocks found right now.")
