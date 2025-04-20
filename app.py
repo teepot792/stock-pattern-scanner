@@ -2,67 +2,7 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
-from bs4 import BeautifulSoup
-import requests
-import random
 from datetime import datetime
-
-# --- Free Proxy Support ---
-def get_free_proxy():
-    proxy_url = "https://free-proxy-list.net/"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    try:
-        res = requests.get(proxy_url, headers=headers, timeout=10)
-        soup = BeautifulSoup(res.text, "html.parser")
-        table = soup.find("table", id="proxylisttable")
-        proxies = []
-        for row in table.tbody.find_all("tr"):
-            cols = row.find_all("td")
-            if cols[6].text == "yes":  # HTTPS support
-                ip = cols[0].text
-                port = cols[1].text
-                proxies.append(f"http://{ip}:{port}")
-        return random.choice(proxies) if proxies else None
-    except Exception as e:
-        print(f"Failed to get proxy list: {e}")
-        return None
-
-# --- Helper Function to Scrape Tickers from Finviz ---
-def get_finviz_tickers():
-    tickers = []
-    headers = {"User-Agent": "Mozilla/5.0"}
-    proxy = get_free_proxy()
-    proxies = {"http": proxy, "https": proxy} if proxy else None
-
-    try:
-        for page in range(0, 2):
-            url = f"https://finviz.com/screener.ashx?v=111&f=cap_microunder,sh_float_u10,sh_short_o10&ft=4&r={1 + page * 20}"
-            st.text(f"Scraping: {url}")  # Debug
-
-            response = requests.get(url, headers=headers, proxies=proxies, timeout=10)
-            soup = BeautifulSoup(response.content, "html.parser")
-
-            # Find the screener table
-            table = soup.find("table", class_="table-light")
-            if not table:
-                st.text("❌ No screener table found.")
-                continue
-
-            rows = table.find_all("tr")[1:]  # Skip header
-            for row in rows:
-                cols = row.find_all("td")
-                if len(cols) >= 2:
-                    ticker = cols[1].text.strip()
-                    if ticker.isalpha():
-                        tickers.append(ticker)
-
-        tickers = list(set(tickers))  # De-duplicate
-        st.text(f"✅ Final ticker list: {tickers}")
-        return tickers
-
-    except Exception as e:
-        st.error(f"Error fetching tickers from Finviz: {e}")
-        return []
 
 # --- Pattern Detection Logic ---
 def detect_u_pattern(df):
@@ -107,11 +47,17 @@ def plot_candlestick(df, ticker, pattern_points):
 st.set_page_config(page_title="Stock Pattern Scanner", layout="wide")
 st.title("📉 Stock Pattern Scanner (U → ∩ → Drop)")
 
-with st.spinner("Fetching tickers from Finviz..."):
-    tickers = get_finviz_tickers()
+# --- CSV Upload ---
+uploaded_file = st.file_uploader("📥 Upload CSV with Tickers (column: Ticker)", type=["csv"])
+
+if uploaded_file:
+    df_uploaded = pd.read_csv(uploaded_file)
+    tickers = df_uploaded['Ticker'].dropna().unique().tolist()
+else:
+    tickers = []
 
 if not tickers:
-    st.warning("⚠️ No tickers found. Try refreshing or check if Finviz is blocking the request.")
+    st.warning("⚠️ No tickers found. Please upload a valid CSV with a 'Ticker' column.")
 else:
     for ticker in tickers:
         try:
