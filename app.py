@@ -8,18 +8,19 @@ def get_finviz_tickers():
     headers = {"User-Agent": "Mozilla/5.0"}
 
     try:
-        for page in range(0, 2):
+        for page in range(0, 2):  # First 2 pages (adjust as needed)
             url = f"https://finviz.com/screener.ashx?v=111&f=cap_microunder,sh_float_u10,sh_short_o10&ft=4&r={1 + page * 20}"
             st.write(f"Scraping: {url}")
             response = requests.get(url, headers=headers, timeout=10)
             soup = BeautifulSoup(response.content, "html.parser")
 
-            table = soup.find("table", class_="table-light")
+            # Try multiple possible table class names
+            table = soup.find("table", class_="screener-view-table") or soup.find("table", class_="table-light")
             if not table:
                 st.warning("❌ No screener table found.")
                 continue
 
-            rows = table.find_all("tr", class_="table-dark-row") + table.find_all("tr", class_="table-light-row")
+            rows = table.find_all("tr", class_=["table-dark-row", "table-light-row"])
             for row in rows:
                 cols = row.find_all("td")
                 if len(cols) > 1:
@@ -40,8 +41,9 @@ with st.spinner("Fetching tickers from Finviz..."):
 
 if not tickers:
     st.warning("⚠️ No tickers found. Try refreshing or check if Finviz is blocking the request.")
+    st.info("🔗 You can still visit [Finviz Screener](https://finviz.com/screener.ashx?v=111&f=cap_microunder,sh_float_u10,sh_short_o10&ft=4) manually.")
 else:
     st.success(f"✅ Found {len(tickers)} tickers.")
-    for ticker in tickers:
+    for ticker in sorted(tickers):
         t212_url = f"https://www.trading212.com/trading-instruments/invest/{ticker}.US"
         st.markdown(f"**{ticker}**: [View on Trading212]({t212_url})", unsafe_allow_html=True)
