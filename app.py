@@ -2,6 +2,30 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
+import requests
+from bs4 import BeautifulSoup
+
+# --- Function to Fetch Tickers from Finviz ---
+def fetch_finviz_tickers():
+    url = "https://finviz.com/screener.ashx?v=111&f=cap_microunder,sh_float_u10,sh_short_o10&ft=4"
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    tickers = []
+
+    try:
+        response = requests.get(url, headers=headers)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        table = soup.find('table', class_='table-light')
+        if table:
+            rows = table.find_all('tr')[1:]  # Skip header row
+            for row in rows:
+                cols = row.find_all('td')
+                if cols:
+                    ticker = cols[1].text.strip()
+                    tickers.append(ticker)
+    except Exception as e:
+        st.error(f"Error fetching tickers from Finviz: {e}")
+
+    return tickers
 
 # --- Pattern Detection Logic ---
 def detect_u_pattern(df):
@@ -52,42 +76,44 @@ def plot_candlestick(df, ticker, pattern_points):
 st.set_page_config(page_title="Stock Pattern Scanner", layout="wide")
 st.title("📉 Stock Pattern Scanner (U → ∩ → Drop)")
 
-tickers = st.text_input("Enter tickers (comma-separated)", "NVDA,AMD,SOUN").upper().split(",")
+tickers = fetch_finviz_tickers()
+if not tickers:
+    st.warning("No tickers fetched from Finviz.")
+else:
+    st.write(f"Fetched {len(tickers)} tickers from Finviz.")
 
-MAX_MARKET_CAP = 20_000_000  # $20 million
+    for ticker in tickers:
+        ticker = ticker.strip()
+        try:
+            info = yf.Ticker(ticker).info
+            market_cap = info.get("marketCap", None)
 
-for ticker in tickers:
-    ticker = ticker.strip()
-    try:
-        info = yf.Ticker(ticker).info
-        market_cap = info.get("marketCap", None)
+            if market_cap is None:
+                st.warning(f"⚠️ No market cap data for {ticker}, skipping.")
+                continue
 
-        if market_cap is None:
-            st.warning(f"⚠️ No market cap data for {ticker}, skipping.")
-            continue
+            if market_cap > 20_000_000:
+                st.info(f"⛔ Skipping {ticker}: Market cap is too high (${market_cap:,})")
+                continue
 
-        if market_cap > MAX_MARKET_CAP:
-            st.info(f"⛔ Skipping {ticker}: Market cap is too high (${market_cap:,})")
-            continue
+            df = yf.download(ticker, interval="5m", period="5d", progress=False)
+            if df.empty:
+                st.warning(f"No data for {ticker}")
+                continue
 
-        df = yf.download(ticker, interval="5m", period="1d", progress=False)
-        if df.empty:
-            st.warning(f"No data for {ticker}")
-            continue
+            df.dropna(inplace=True)
+            pattern_points = detect_u_pattern(df)
 
-        df.dropna(inplace=True)
-        pattern_points = detect_u_pattern(df)
+            if pattern_points:
+                latest_pattern_date = df.index[pattern_points[-1][-1]].strftime("%Y-%m-%d %H:%M")
+                st.subheader(f"✅ Pattern Found for {ticker}")
+                st.write(f"🕒 Latest Pattern Date: {latest_pattern_date}")
+                st.markdown(f"[🔗 View {ticker} on Trading212](https://www.trading212.com/trading-instruments/invest/{ticker}.US)", unsafe_allow_html=True)
 
-        if pattern_points:
-            latest_pattern_date = df.index[pattern_points[-1][-1]].strftime("%Y-%m-%d %H:%M")
-            st.subheader(f"✅ Pattern Found for {ticker}")
-            st.write(f"🕒 Latest Pattern Date: {latest_pattern_date}")
-            st.markdown(f"[🔗 View {ticker} on Trading212](https://www.trading212.com/trading-instruments/invest/{ticker}.US)", unsafe_allow_html=True)
+                fig = plot_candlestick(df, ticker, pattern_points)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info(f"No pattern found for {ticker}")
 
-            fig = plot_candlestick(df, ticker, pattern_points)
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info(f"No pattern found for {ticker}")
-
-    except Exception as e:
-        st.error(f"Error processing {ticker}: {e}")
+        except Exception as e:
+            st.error(f"Error processing {ticker}: {e}")
