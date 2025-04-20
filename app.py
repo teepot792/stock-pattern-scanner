@@ -2,113 +2,80 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
-import requests
-from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
-import time
 
-st.set_page_config(page_title="Multi-Ticker Pattern Scanner", layout="wide")
-st.title("Live Finviz Scanner: Small u → Big U → Drop to Halfway")
+# --- Pattern Detection Logic ---
+def detect_u_pattern(df):
+    pattern_points = []
 
-# Get tickers from Finviz screener
-@st.cache_data(ttl=3600)
-def get_finviz_tickers():
-    url = "https://finviz.com/screener.ashx?v=111&f=cap_microunder,sh_float_u10,sh_short_o10&ft=4"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    res = requests.get(url, headers=headers)
-    soup = BeautifulSoup(res.text, "html.parser")
+    for i in range(30, len(df) - 10):
+        window = df.iloc[i - 30:i + 10]
 
-    table = soup.find("table", class_="table-light")
-    tickers = []
+        min1 = window['Low'].iloc[:10].idxmin()
+        max1 = window['High'].iloc[10:20].idxmax()
+        min2 = window['Low'].iloc[20:30].idxmin()
+        last_price = window['Close'].iloc[-1]
 
-    if table:
-        for row in table.find_all("a", class_="screener-link-primary"):
-            tickers.append(row.text.strip())
+        if (min1 < max1 < min2 and
+            window['Low'].loc[min1] < window['Low'].loc[min2] and
+            last_price <= (window['Low'].loc[min1] + window['Low'].loc[min2]) / 2 and
+            last_price >= window['Low'].loc[min1]):
+            pattern_points.append((min1, max1, min2, i + 9))
 
-    return list(set(tickers))[:15]  # Limit to first 15 for speed
+    return pattern_points
 
-# Pattern detection
-def detect_pattern(df):
-    window_size = 80
+# --- Candlestick Plot ---
+def plot_candlestick(df, ticker, pattern_points):
+    fig = go.Figure()
 
-    for i in range(len(df) - window_size):
-        segment = df.iloc[i:i + window_size]
-        prices = segment['Close'].values
-        smooth = pd.Series(prices).rolling(window=5, center=True).mean().fillna(method='bfill').fillna(method='ffill')
+    fig.add_trace(go.Candlestick(
+        x=df.index,
+        open=df['Open'],
+        high=df['High'],
+        low=df['Low'],
+        close=df['Close'],
+        name=ticker
+    ))
 
-        min1_idx = smooth[:15].idxmin()
-        max1_idx = smooth[min1_idx:min1_idx+15].idxmax()
-        min2_idx = smooth[max1_idx:max1_idx+40].idxmin()
+    for p in pattern_points:
+        min1, max1, min2, latest = p
+        fig.add_trace(go.Scatter(x=[df.index[min1]], y=[df['Low'][min1]],
+                                 mode='markers', marker=dict(color='green', size=10), name='Small U'))
+        fig.add_trace(go.Scatter(x=[df.index[max1]], y=[df['High'][max1]],
+                                 mode='markers', marker=dict(color='orange', size=10), name='Big ∩'))
+        fig.add_trace(go.Scatter(x=[df.index[min2]], y=[df['Low'][min2]],
+                                 mode='markers', marker=dict(color='red', size=10), name='Retest'))
 
-        if min1_idx < max1_idx < min2_idx:
-            small_u_range = smooth[max1_idx] - smooth[min1_idx]
-            big_u_range = smooth[max1_idx] - smooth[min2_idx]
-            halfway = smooth[min1_idx] + (small_u_range / 2)
-            recent_price = smooth[min2_idx]
+    fig.update_layout(title=f"{ticker} Pattern Detection", xaxis_title="Time", yaxis_title="Price")
+    return fig
 
-            if big_u_range > small_u_range * 1.5 and abs(recent_price - halfway) / halfway < 0.1:
-                time_min1 = segment.iloc[min1_idx]['Datetime']
-                time_max1 = segment.iloc[max1_idx]['Datetime']
-                time_min2 = segment.iloc[min2_idx]['Datetime']
+# --- App Layout ---
+st.set_page_config(page_title="Stock Pattern Scanner", layout="wide")
+st.title("📉 Stock Pattern Scanner (U → ∩ → Drop)")
 
-                fig = go.Figure(data=[go.Candlestick(
-                    x=segment['Datetime'],
-                    open=segment['Open'],
-                    high=segment['High'],
-                    low=segment['Low'],
-                    close=segment['Close'],
-                    name='Price'
-                )])
-
-                fig.add_trace(go.Scatter(x=[time_min1], y=[float(smooth[min1_idx])], mode='markers+text',
-                                         text=["Small u start"], textposition="top center",
-                                         marker=dict(color='blue', size=10)))
-
-                fig.add_trace(go.Scatter(x=[time_max1], y=[float(smooth[max1_idx])], mode='markers+text',
-                                         text=["Big U peak"], textposition="bottom center",
-                                         marker=dict(color='orange', size=10)))
-
-                fig.add_trace(go.Scatter(x=[time_min2], y=[float(smooth[min2_idx])], mode='markers+text',
-                                         text=["Drop to halfway"], textposition="top center",
-                                         marker=dict(color='red', size=10)))
-
-                fig.update_layout(title=f"Pattern Detected",
-                                  xaxis_title="Time", yaxis_title="Price",
-                                  xaxis_rangeslider_visible=False)
-
-                return True, fig, segment.iloc[-1]['Datetime']
-
-    return False, None, None
-
-# Main logic
-tickers = get_finviz_tickers()
-st.subheader(f"Scanning {len(tickers)} tickers from Finviz...")
-
-end_date = datetime.now()
-start_date = end_date - timedelta(days=4)
-
-matched = 0
+tickers = st.text_input("Enter tickers (comma-separated)", "NVDA,AMD,SOUN").upper().split(",")
 
 for ticker in tickers:
+    ticker = ticker.strip()
     try:
-        st.write(f"Checking {ticker}...")
-        df = yf.download(ticker, start=start_date, end=end_date, interval="5m", progress=False)
+        df = yf.download(ticker, interval="5m", period="5d", progress=False)
+        if df.empty:
+            st.warning(f"No data for {ticker}")
+            continue
+
         df.dropna(inplace=True)
-        df.reset_index(inplace=True)
+        pattern_points = detect_u_pattern(df)
 
-        found, fig, latest_time = detect_pattern(df)
+        if pattern_points:
+            latest_pattern_date = df.index[pattern_points[-1][-1]].strftime("%Y-%m-%d %H:%M")
+            st.subheader(f"✅ Pattern Found for {ticker}")
+            st.write(f"🕒 Latest Pattern Date: {latest_pattern_date}")
+            st.markdown(f"[🔗 View {ticker} on Trading212](https://www.trading212.com/trading-instruments/invest/{ticker}.US)", unsafe_allow_html=True)
 
-        if found:
-            st.success(f"**{ticker}** matched! Latest point: {latest_time}")
+            fig = plot_candlestick(df, ticker, pattern_points)
             st.plotly_chart(fig, use_container_width=True)
-            matched += 1
         else:
-            st.write(f"{ticker}: No pattern")
-
-        time.sleep(1)  # small pause to avoid rate limits
+            st.info(f"No pattern found for {ticker}")
 
     except Exception as e:
-        st.error(f"Error checking {ticker}: {e}")
-
-if matched == 0:
-    st.warning("No matching patterns found.")
+        st.error(f"Error processing {ticker}: {e}")
