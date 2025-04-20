@@ -56,9 +56,8 @@ def plot_candlestick(df, ticker, pattern_points):
 # ---------------- Fetch Tickers from Finviz ----------------
 def get_finviz_tickers():
     try:
-        filters = ["cap_microunder", "sh_float_u10", "sh_short_o10"]
         stock_list = Overview()
-        stock_list.set_filter(filters=filters)
+        stock_list.set_filter(["cap_microunder", "sh_float_u10", "sh_short_o10"])
         df = stock_list.screener_view()
         tickers = df['Ticker'].tolist()
         return tickers
