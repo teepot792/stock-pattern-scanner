@@ -2,32 +2,16 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
-from bs4 import BeautifulSoup
-import requests
-from datetime import datetime
+from finvizfinance.screener.overview import Overview
 
-# --- Helper Function to Scrape Tickers from Finviz ---
+# --- Helper Function to Fetch Tickers from Finviz ---
 def get_finviz_tickers():
-    tickers = []
-    headers = {"User-Agent": "Mozilla/5.0"}
-
-    for page in range(0, 5):  # Adjust pages if needed (20 tickers per page)
-        url = f"https://finviz.com/screener.ashx?v=111&f=cap_microunder,sh_float_u10,sh_short_o10&ft=4&r={1 + page * 20}"
-        response = requests.get(url, headers=headers)
-        soup = BeautifulSoup(response.content, "html.parser")
-
-        table = soup.find_all("table")
-        if len(table) < 8:
-            continue
-
-        rows = table[7].find_all("tr", class_="table-dark-row-cp") + table[7].find_all("tr", class_="table-light-row-cp")
-        for row in rows:
-            cols = row.find_all("td")
-            if len(cols) > 1:
-                ticker = cols[1].text.strip()
-                tickers.append(ticker)
-
-    return list(set(tickers))
+    filters = ['cap_microunder', 'sh_float_u10', 'sh_short_o10']
+    overview = Overview()
+    overview.set_filter(filters=filters)
+    screener_df = overview.screener_view()
+    tickers = screener_df['Ticker'].tolist()
+    return tickers
 
 # --- Pattern Detection Logic ---
 def detect_u_pattern(df):
