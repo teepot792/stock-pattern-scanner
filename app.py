@@ -1,70 +1,85 @@
-
 import streamlit as st
 import yfinance as yf
-from pattern_detector import detect_pattern
-import matplotlib.pyplot as plt
 import pandas as pd
+import plotly.graph_objects as go
+from datetime import datetime, timedelta
 
 st.set_page_config(page_title="Stock Pattern Scanner", layout="wide")
+st.title("Small u → Big U → Drop to Halfway Pattern Scanner")
 
-st.title("Small u → Big U → Halfway Drop Pattern Scanner")
+ticker = st.text_input("Enter Ticker (e.g. GCT)", "GCT")
 
-# Load tickers from file
-with open("tickers.txt", "r") as f:
-    tickers = [line.strip() for line in f if line.strip()]
+if ticker:
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=4)
 
-st.sidebar.subheader("Scanner Settings")
-start_date = st.sidebar.date_input("Start Date", value=pd.to_datetime("2023-01-01"))
-end_date = st.sidebar.date_input("End Date", value=pd.to_datetime("2024-01-01"))
+    st.write(f"Loading 5-minute data for **{ticker}**...")
 
-st.sidebar.subheader("Position Size Calculator")
-budget = st.sidebar.number_input("Your Budget ($)", min_value=0.0, value=1000.0, step=100.0)
-max_order = st.sidebar.number_input("Max Order per Trade ($)", min_value=0.0, value=500.0, step=50.0)
-max_shares = st.sidebar.number_input("Max Shares per Ticker", min_value=1, value=1000, step=10)
-
-results = []
-
-for ticker in tickers:
-    with st.spinner(f"Scanning {ticker}..."):
-        matches, df = detect_pattern(ticker, start_date, end_date)
-        if matches:
-            results.append((ticker, matches, df))
-
-st.subheader(f"Found {len(results)} pattern match(es)")
-
-for ticker, matches, df in results:
-    st.markdown(f"### {ticker}")
-    fig, ax = plt.subplots(figsize=(12, 4))
-    ax.plot(df.index, df['Smoothed'], label="Smoothed Price")
-    for i in matches:
-        ax.axvspan(df.index[i], df.index[min(i+50, len(df)-1)], color="orange", alpha=0.3)
-    ax.legend()
-    st.pyplot(fig)
-
-    latest_price = df['Close'].iloc[-1]
-    raw_shares = int(budget // latest_price)
-    order_cap_shares = int(max_order // latest_price)
-    shares = min(raw_shares, order_cap_shares, max_shares)
-
-    # get the very latest close price
     try:
-        latest_price = float(df['Close'].iloc[-1])
-    except Exception:
-        st.markdown("⚠️ Could not fetch latest price for this ticker.")
-        continue  # skip to the next ticker
+        df = yf.download(ticker, start=start_date, end=end_date, interval="5m", progress=False)
+        df.dropna(inplace=True)
+        df.reset_index(inplace=True)
 
-    # calculate how many shares you could buy
-    raw_shares = int(budget // latest_price)
-    order_cap_shares = int(max_order // latest_price)
-    shares = min(raw_shares, order_cap_shares, max_shares)
+        df['Timestamp'] = pd.to_datetime(df['Datetime'])
 
-    # display
-    st.markdown(f"**Latest Price**: ${latest_price:.2f}")
-    st.markdown(f"**You could buy up to `{shares}` shares** of `{ticker}` with these constraints:")
-    st.markdown(f"- Budget: ${budget:.2f}")
-    st.markdown(f"- Max per order: ${max_order:.2f}")
-    st.markdown(f"- Max shares: {max_shares}")
-    st.markdown(f"**You could buy up to `{shares}` shares** of `{ticker}` with these constraints:")
-    st.markdown(f"- Budget: ${budget:.2f}")
-    st.markdown(f"- Max per order: ${max_order:.2f}")
-    st.markdown(f"- Max shares: {max_shares}")
+        def detect_pattern(df):
+            window_size = 80  # about 6.5 hours of 5-min candles
+
+            for i in range(len(df) - window_size):
+                segment = df.iloc[i:i + window_size]
+                prices = segment['Close'].values
+                smooth = pd.Series(prices).rolling(window=5, center=True).mean().fillna(method='bfill').fillna(method='ffill')
+
+                min1_idx = smooth[:15].idxmin()
+                max1_idx = smooth[min1_idx:min1_idx+15].idxmax()
+                min2_idx = smooth[max1_idx:max1_idx+40].idxmin()
+
+                if min1_idx < max1_idx < min2_idx:
+                    small_u_range = smooth[max1_idx] - smooth[min1_idx]
+                    big_u_range = smooth[max1_idx] - smooth[min2_idx]
+                    halfway = smooth[min1_idx] + (small_u_range / 2)
+                    recent_price = smooth[min2_idx]
+
+                    if big_u_range > small_u_range * 1.5 and abs(recent_price - halfway) / halfway < 0.1:
+                        time_min1 = segment.iloc[min1_idx]['Timestamp']
+                        time_max1 = segment.iloc[max1_idx]['Timestamp']
+                        time_min2 = segment.iloc[min2_idx]['Timestamp']
+
+                        fig = go.Figure(data=[go.Candlestick(
+                            x=segment['Timestamp'],
+                            open=segment['Open'],
+                            high=segment['High'],
+                            low=segment['Low'],
+                            close=segment['Close'],
+                            name='Price'
+                        )])
+
+                        fig.add_trace(go.Scatter(x=[time_min1], y=[smooth[min1_idx]], mode='markers+text',
+                                                 text=["Small u start"], textposition="top center",
+                                                 marker=dict(color='blue', size=10)))
+
+                        fig.add_trace(go.Scatter(x=[time_max1], y=[smooth[max1_idx]], mode='markers+text',
+                                                 text=["Big U peak"], textposition="bottom center",
+                                                 marker=dict(color='orange', size=10)))
+
+                        fig.add_trace(go.Scatter(x=[time_min2], y=[smooth[min2_idx]], mode='markers+text',
+                                                 text=["Drop to halfway"], textposition="top center",
+                                                 marker=dict(color='red', size=10)))
+
+                        fig.update_layout(title=f"Pattern Detected for {ticker}",
+                                          xaxis_title="Time", yaxis_title="Price",
+                                          xaxis_rangeslider_visible=False)
+                        return True, fig, segment.iloc[-1]['Timestamp']
+
+            return False, None, None
+
+        found, fig, latest_time = detect_pattern(df)
+
+        if found:
+            st.success(f"Pattern detected! Latest timestamp: **{latest_time}**")
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("No pattern detected in recent data.")
+
+    except Exception as e:
+        st.error(f"Error loading or processing data: {e}")
