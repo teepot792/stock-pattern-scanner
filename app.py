@@ -8,21 +8,25 @@ from datetime import datetime
 
 # --- Helper Function to Scrape Tickers from Finviz ---
 def get_finviz_tickers():
-    url = "https://finviz.com/screener.ashx?v=111&f=cap_microunder,sh_float_u10,sh_short_o10&ft=4"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(url, headers=headers)
-    soup = BeautifulSoup(response.content, "html.parser")
-    
     tickers = []
-    table = soup.find("table", class_="table-light")
-    if not table:
-        return []
+    headers = {"User-Agent": "Mozilla/5.0"}
 
-    rows = table.find_all("tr", class_="table-dark-row") + table.find_all("tr", class_="table-light-row")
-    for row in rows:
-        cols = row.find_all("td")
-        if cols:
-            tickers.append(cols[1].text.strip())
+    for page in range(0, 5):  # Adjust pages if needed (20 tickers per page)
+        url = f"https://finviz.com/screener.ashx?v=111&f=cap_microunder,sh_float_u10,sh_short_o10&ft=4&r={1 + page * 20}"
+        response = requests.get(url, headers=headers)
+        soup = BeautifulSoup(response.content, "html.parser")
+
+        table = soup.find("table", class_="table-light")
+        if not table:
+            continue
+
+        rows = table.find_all("tr", class_="table-dark-row") + table.find_all("tr", class_="table-light-row")
+        for row in rows:
+            cols = row.find_all("td")
+            if len(cols) > 1:
+                ticker = cols[1].text.strip()
+                tickers.append(ticker)
+
     return list(set(tickers))
 
 # --- Pattern Detection Logic ---
