@@ -7,22 +7,29 @@ st.title("📈 Finviz Screener: Micro Cap Stocks with Low Float & High Short Int
 
 # --- Finviz Scraper Function ---
 def get_finviz_tickers():
-    url = "https://finviz.com/screener.ashx?v=111&f=cap_microunder,sh_float_u10,sh_short_o10&ft=4"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36"
-    }
-    
-    response = requests.get(url, headers=headers)
-    if response.status_code != 200:
-        st.error("Failed to fetch data from Finviz")
-        return []
-
-    soup = BeautifulSoup(response.text, 'html.parser')
     tickers = []
-    for row in soup.select(".screener-body-table-nw tr[valign='top']")[1:]:
-        cells = row.find_all("td")
-        if len(cells) > 1:
-            tickers.append(cells[1].text.strip())
+    base_url = "https://finviz.com/screener.ashx"
+    params = {
+        "v": "111",
+        "f": "cap_microunder,sh_float_u10,sh_short_o10",
+        "ft": "4",
+        "r": "1"
+    }
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+    }
+
+    try:
+        response = requests.get(base_url, params=params, headers=headers)
+        soup = BeautifulSoup(response.text, 'html5lib')
+        table = soup.find("table", class_="table-light")
+        rows = table.find_all("tr", valign="top")
+        for row in rows:
+            cols = row.find_all("td")
+            if len(cols) > 1:
+                tickers.append(cols[1].text.strip())
+    except Exception as e:
+        st.error(f"Error fetching tickers from Finviz: {e}")
 
     return tickers
 
