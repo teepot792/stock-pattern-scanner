@@ -4,29 +4,57 @@ import pandas as pd
 import plotly.graph_objects as go
 from bs4 import BeautifulSoup
 import requests
+import random
+from datetime import datetime
 
-# --- Scrape tickers from Finviz screener directly ---
+# --- Free Proxy Support ---
+def get_free_proxy():
+    proxy_url = "https://free-proxy-list.net/"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    try:
+        res = requests.get(proxy_url, headers=headers, timeout=10)
+        soup = BeautifulSoup(res.text, "html.parser")
+        table = soup.find("table", id="proxylisttable")
+        proxies = []
+        for row in table.tbody.find_all("tr"):
+            cols = row.find_all("td")
+            if cols[6].text == "yes":  # HTTPS support
+                ip = cols[0].text
+                port = cols[1].text
+                proxies.append(f"http://{ip}:{port}")
+        return random.choice(proxies) if proxies else None
+    except Exception as e:
+        print(f"Failed to get proxy list: {e}")
+        return None
+
+# --- Helper Function to Scrape Tickers from Finviz ---
 def get_finviz_tickers():
     tickers = []
     headers = {"User-Agent": "Mozilla/5.0"}
+    proxy = get_free_proxy()
+    proxies = {"http": proxy, "https": proxy} if proxy else None
 
-    for page in range(0, 3):  # Adjust number of pages as needed
-        url = f"https://finviz.com/screener.ashx?v=111&f=cap_microunder,sh_float_u10,sh_short_o10&ft=4&r={1 + page * 20}"
-        response = requests.get(url, headers=headers)
-        soup = BeautifulSoup(response.content, "html.parser")
+    try:
+        for page in range(0, 2):
+            url = f"https://finviz.com/screener.ashx?v=111&f=cap_microunder,sh_float_u10,sh_short_o10&ft=4&r={1 + page * 20}"
+            response = requests.get(url, headers=headers, proxies=proxies, timeout=10)
+            soup = BeautifulSoup(response.content, "html.parser")
 
-        table = soup.find("table", class_="table-light")
-        if not table:
-            continue
+            table = soup.find("table", class_="table-light")
+            if not table:
+                continue
 
-        rows = table.find_all("tr", class_=["table-dark-row", "table-light-row"])
-        for row in rows:
-            cols = row.find_all("td")
-            if len(cols) > 1:
-                ticker = cols[1].text.strip()
-                tickers.append(ticker)
+            rows = table.find_all("tr", class_="table-dark-row") + table.find_all("tr", class_="table-light-row")
+            for row in rows:
+                cols = row.find_all("td")
+                if len(cols) > 1:
+                    ticker = cols[1].text.strip()
+                    tickers.append(ticker)
 
-    return list(set(tickers))
+        return list(set(tickers))
+    except Exception as e:
+        st.error(f"Error fetching tickers from Finviz: {e}")
+        return []
 
 # --- Pattern Detection Logic ---
 def detect_u_pattern(df):
@@ -45,7 +73,7 @@ def detect_u_pattern(df):
             pattern_points.append((min1, max1, min2, i + 9))
     return pattern_points
 
-# --- Plotting ---
+# --- Candlestick Plot ---
 def plot_candlestick(df, ticker, pattern_points):
     fig = go.Figure()
     fig.add_trace(go.Candlestick(
@@ -71,12 +99,8 @@ def plot_candlestick(df, ticker, pattern_points):
 st.set_page_config(page_title="Stock Pattern Scanner", layout="wide")
 st.title("📉 Stock Pattern Scanner (U → ∩ → Drop)")
 
-with st.spinner("🔍 Fetching tickers from Finviz..."):
-    try:
-        tickers = get_finviz_tickers()
-    except Exception as e:
-        st.error(f"❌ Error fetching tickers: {e}")
-        tickers = []
+with st.spinner("Fetching tickers from Finviz..."):
+    tickers = get_finviz_tickers()
 
 if not tickers:
     st.warning("⚠️ No tickers found. Try refreshing or check if Finviz is blocking the request.")
