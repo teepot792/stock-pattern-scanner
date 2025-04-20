@@ -7,3 +7,4 @@ matplotlib
 plotly
 finvizfinance
 html5lib
+beautifulsoup4
