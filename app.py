@@ -2,7 +2,6 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
 
 # --- Pattern Detection Logic ---
 def detect_u_pattern(df):
@@ -11,29 +10,16 @@ def detect_u_pattern(df):
     for i in range(30, len(df) - 10):
         window = df.iloc[i - 30:i + 10]
 
-        try:
-            min1_loc = window['Low'].iloc[:10].idxmin()
-            max1_loc = window['High'].iloc[10:20].idxmax()
-            min2_loc = window['Low'].iloc[20:30].idxmin()
+        min1 = window['Low'].iloc[:10].idxmin()
+        max1 = window['High'].iloc[10:20].idxmax()
+        min2 = window['Low'].iloc[20:30].idxmin()
+        last_price = window['Close'].iloc[-1]
 
-            min1_index = window.index.get_loc(min1_loc)
-            max1_index = window.index.get_loc(max1_loc)
-            min2_index = window.index.get_loc(min2_loc)
-
-            min1_price = window.loc[min1_loc, 'Low']
-            min2_price = window.loc[min2_loc, 'Low']
-            last_price = window['Close'].iloc[-1]
-            midpoint = (min1_price + min2_price) / 2
-
-            if (min1_index < max1_index < min2_index and
-                min1_price < min2_price and
-                midpoint <= last_price <= min2_price):
-                pattern_points.append((i - 30 + min1_index,
-                                       i - 30 + max1_index,
-                                       i - 30 + min2_index,
-                                       i + 9))
-        except Exception:
-            continue
+        if (min1 < max1 < min2 and
+            window['Low'].loc[min1] < window['Low'].loc[min2] and
+            last_price <= (window['Low'].loc[min1] + window['Low'].loc[min2]) / 2 and
+            last_price >= window['Low'].loc[min1]):
+            pattern_points.append((min1, max1, min2, i + 9))
 
     return pattern_points
 
@@ -68,10 +54,23 @@ st.title("📉 Stock Pattern Scanner (U → ∩ → Drop)")
 
 tickers = st.text_input("Enter tickers (comma-separated)", "NVDA,AMD,SOUN").upper().split(",")
 
+MAX_MARKET_CAP = 20_000_000  # $20 million
+
 for ticker in tickers:
     ticker = ticker.strip()
     try:
-        df = yf.download(ticker, interval="5m", period="5d", progress=False)
+        info = yf.Ticker(ticker).info
+        market_cap = info.get("marketCap", None)
+
+        if market_cap is None:
+            st.warning(f"⚠️ No market cap data for {ticker}, skipping.")
+            continue
+
+        if market_cap > MAX_MARKET_CAP:
+            st.info(f"⛔ Skipping {ticker}: Market cap is too high (${market_cap:,})")
+            continue
+
+        df = yf.download(ticker, interval="5m", period="1d", progress=False)
         if df.empty:
             st.warning(f"No data for {ticker}")
             continue
