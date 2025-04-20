@@ -1,103 +1,39 @@
 import streamlit as st
-import yfinance as yf
-import pandas as pd
-import plotly.graph_objects as go
-from datetime import datetime, timedelta
-from finvizfinance.screener.overview import Overview
+import requests
+from bs4 import BeautifulSoup
 
-# --- Fetch Tickers from Finviz ---
+st.set_page_config(page_title="Low Float Ticker List", layout="wide")
+st.title("📈 Finviz Screener: Micro Cap Stocks with Low Float & High Short Interest")
+
+# --- Finviz Scraper Function ---
 def get_finviz_tickers():
-    try:
-        stock_list = Overview()
-        stock_list.set_filter("cap_microunder", "sh_float_u10", "sh_short_o10")
-        df = stock_list.screener_view()
-        tickers = df['Ticker'].tolist()
-        return tickers
-    except Exception as e:
-        st.error(f"Error fetching tickers from Finviz: {e}")
+    url = "https://finviz.com/screener.ashx?v=111&f=cap_microunder,sh_float_u10,sh_short_o10&ft=4"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36"
+    }
+    
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        st.error("Failed to fetch data from Finviz")
         return []
 
-# --- Pattern Detection Logic ---
-def detect_u_pattern(df):
-    pattern_points = []
+    soup = BeautifulSoup(response.text, 'html.parser')
+    tickers = []
+    for row in soup.select(".screener-body-table-nw tr[valign='top']")[1:]:
+        cells = row.find_all("td")
+        if len(cells) > 1:
+            tickers.append(cells[1].text.strip())
 
-    for i in range(30, len(df) - 10):
-        window = df.iloc[i - 30:i + 10]
+    return tickers
 
-        min1 = window['Low'].iloc[:10].idxmin()
-        max1 = window['High'].iloc[10:20].idxmax()
-        min2 = window['Low'].iloc[20:30].idxmin()
-        last_price = window['Close'].iloc[-1]
-
-        try:
-            if (
-                min1 < max1 < min2 and
-                window['Low'].loc[min1] < window['Low'].loc[min2] and
-                last_price <= (window['Low'].loc[min1] + window['Low'].loc[min2]) / 2 and
-                last_price >= window['Low'].loc[min1]
-            ):
-                pattern_points.append((min1, max1, min2, i + 9))
-        except:
-            continue
-
-    return pattern_points
-
-# --- Candlestick Plot ---
-def plot_candlestick(df, ticker, pattern_points):
-    fig = go.Figure()
-
-    fig.add_trace(go.Candlestick(
-        x=df.index,
-        open=df['Open'],
-        high=df['High'],
-        low=df['Low'],
-        close=df['Close'],
-        name=ticker
-    ))
-
-    for p in pattern_points:
-        min1, max1, min2, latest = p
-        fig.add_trace(go.Scatter(x=[df.index[min1]], y=[df['Low'].iloc[min1]],
-                                 mode='markers', marker=dict(color='green', size=10), name='Small U'))
-        fig.add_trace(go.Scatter(x=[df.index[max1]], y=[df['High'].iloc[max1]],
-                                 mode='markers', marker=dict(color='orange', size=10), name='Big ∩'))
-        fig.add_trace(go.Scatter(x=[df.index[min2]], y=[df['Low'].iloc[min2]],
-                                 mode='markers', marker=dict(color='red', size=10), name='Retest'))
-
-    fig.update_layout(title=f"{ticker} Pattern Detection", xaxis_title="Time", yaxis_title="Price")
-    return fig
-
-# --- App Layout ---
-st.set_page_config(page_title="Stock Pattern Scanner", layout="wide")
-st.title("📉 Stock Pattern Scanner (Small u → Big ∩ → Drop)")
-
-st.info("Scanning Finviz for low float, low cap, high short interest stocks...")
+# --- App Logic ---
 tickers = get_finviz_tickers()
 
-if not tickers:
-    st.warning("No tickers fetched from Finviz.")
-else:
+if tickers:
+    st.success(f"✅ {len(tickers)} tickers found from Finviz")
+    st.write("### Ticker List:")
     for ticker in tickers:
-        ticker = ticker.strip()
-        try:
-            df = yf.download(ticker, interval="5m", period="1d", progress=False)
-            if df.empty:
-                st.warning(f"No data for {ticker}")
-                continue
-
-            df.dropna(inplace=True)
-            pattern_points = detect_u_pattern(df)
-
-            if pattern_points:
-                latest_pattern_date = df.index[pattern_points[-1][-1]].strftime("%Y-%m-%d %H:%M")
-                st.subheader(f"✅ Pattern Found for {ticker}")
-                st.write(f"🕒 Latest Pattern Date: {latest_pattern_date}")
-                st.markdown(f"[🔗 View {ticker} on Trading212](https://www.trading212.com/trading-instruments/invest/{ticker}.US)", unsafe_allow_html=True)
-
-                fig = plot_candlestick(df, ticker, pattern_points)
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info(f"No pattern found for {ticker}")
-
-        except Exception as e:
-            st.error(f"Error processing {ticker}: {e}")
+        t212_link = f"https://www.trading212.com/trading-instruments/invest/{ticker}.US"
+        st.markdown(f"- **{ticker}** → [🔗 Trading212]({t212_link})")
+else:
+    st.warning("No tickers found or failed to load data.")
