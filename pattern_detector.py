@@ -69,9 +69,18 @@ if not data.empty:
     selected_ticker = st.selectbox("📊 Select a ticker to view chart", data["Ticker"].tolist())
     interval_option = st.selectbox("🕒 Select chart interval", ["5m", "15m", "30m", "1h"], index=2)
 
+    # Determine correct period for each interval
+    interval_period_map = {
+        "5m": "7d",
+        "15m": "30d",
+        "30m": "30d",
+        "1h": "60d"
+    }
+    chart_period = interval_period_map.get(interval_option, "7d")
+
     if selected_ticker:
-        st.subheader(f"📈 {interval_option} Chart for {selected_ticker}")
-        chart_data = yf.download(selected_ticker, period="1d", interval=interval_option)
+        st.subheader(f"📈 {interval_option} Chart for {selected_ticker} (up to {chart_period})")
+        chart_data = yf.download(selected_ticker, period=chart_period, interval=interval_option)
 
         if not chart_data.empty:
             fig = go.Figure()
