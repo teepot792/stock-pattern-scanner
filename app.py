@@ -3,12 +3,13 @@ import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
 from finvizfinance.screener.overview import Overview
+from datetime import datetime
 
-# --- Helper Function to Fetch Tickers from Finviz ---
+# --- Scrape tickers from Finviz using finvizfinance ---
 def get_finviz_tickers():
     filters = ['cap_microunder', 'sh_float_u10', 'sh_short_o10']
     overview = Overview()
-    overview.set_filter(filters=filters)
+    overview.set_filter(*filters)
     screener_df = overview.screener_view()
     tickers = screener_df['Ticker'].tolist()
     return tickers
@@ -57,7 +58,11 @@ st.set_page_config(page_title="Stock Pattern Scanner", layout="wide")
 st.title("📉 Stock Pattern Scanner (U → ∩ → Drop)")
 
 with st.spinner("Fetching tickers from Finviz..."):
-    tickers = get_finviz_tickers()
+    try:
+        tickers = get_finviz_tickers()
+    except Exception as e:
+        st.error(f"Error fetching tickers from Finviz: {e}")
+        tickers = []
 
 if not tickers:
     st.warning("⚠️ No tickers found. Try refreshing or check if Finviz is blocking the request.")
