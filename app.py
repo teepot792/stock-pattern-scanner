@@ -2,10 +2,22 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
+from datetime import datetime, timedelta
 from finvizfinance.screener.overview import Overview
-from datetime import datetime
 
-# ---------------- Pattern Detection Logic ----------------
+# --- Fetch Tickers from Finviz ---
+def get_finviz_tickers():
+    try:
+        stock_list = Overview()
+        stock_list.set_filter("cap_microunder", "sh_float_u10", "sh_short_o10")
+        df = stock_list.screener_view()
+        tickers = df['Ticker'].tolist()
+        return tickers
+    except Exception as e:
+        st.error(f"Error fetching tickers from Finviz: {e}")
+        return []
+
+# --- Pattern Detection Logic ---
 def detect_u_pattern(df):
     pattern_points = []
 
@@ -18,17 +30,19 @@ def detect_u_pattern(df):
         last_price = window['Close'].iloc[-1]
 
         try:
-            if (min1 < max1 < min2 and
+            if (
+                min1 < max1 < min2 and
                 window['Low'].loc[min1] < window['Low'].loc[min2] and
                 last_price <= (window['Low'].loc[min1] + window['Low'].loc[min2]) / 2 and
-                last_price >= window['Low'].loc[min1]):
+                last_price >= window['Low'].loc[min1]
+            ):
                 pattern_points.append((min1, max1, min2, i + 9))
-        except Exception:
+        except:
             continue
 
     return pattern_points
 
-# ---------------- Candlestick Plot ----------------
+# --- Candlestick Plot ---
 def plot_candlestick(df, ticker, pattern_points):
     fig = go.Figure()
 
@@ -43,41 +57,32 @@ def plot_candlestick(df, ticker, pattern_points):
 
     for p in pattern_points:
         min1, max1, min2, latest = p
-        fig.add_trace(go.Scatter(x=[df.index[min1]], y=[df['Low'][min1]],
+        fig.add_trace(go.Scatter(x=[df.index[min1]], y=[df['Low'].iloc[min1]],
                                  mode='markers', marker=dict(color='green', size=10), name='Small U'))
-        fig.add_trace(go.Scatter(x=[df.index[max1]], y=[df['High'][max1]],
+        fig.add_trace(go.Scatter(x=[df.index[max1]], y=[df['High'].iloc[max1]],
                                  mode='markers', marker=dict(color='orange', size=10), name='Big ∩'))
-        fig.add_trace(go.Scatter(x=[df.index[min2]], y=[df['Low'][min2]],
+        fig.add_trace(go.Scatter(x=[df.index[min2]], y=[df['Low'].iloc[min2]],
                                  mode='markers', marker=dict(color='red', size=10), name='Retest'))
 
     fig.update_layout(title=f"{ticker} Pattern Detection", xaxis_title="Time", yaxis_title="Price")
     return fig
 
-# ---------------- Fetch Tickers from Finviz ----------------
-def get_finviz_tickers():
-    try:
-        stock_list = Overview()
-        stock_list.set_filter(["cap_microunder", "sh_float_u10", "sh_short_o10"])
-        df = stock_list.screener_view()
-        tickers = df['Ticker'].tolist()
-        return tickers
-    except Exception as e:
-        st.error(f"Error fetching tickers from Finviz: {e}")
-        return []
-
-# ---------------- Streamlit App ----------------
+# --- App Layout ---
 st.set_page_config(page_title="Stock Pattern Scanner", layout="wide")
-st.title("📉 Stock Pattern Scanner (U → ∩ → Drop)")
+st.title("📉 Stock Pattern Scanner (Small u → Big ∩ → Drop)")
 
+st.info("Scanning Finviz for low float, low cap, high short interest stocks...")
 tickers = get_finviz_tickers()
 
 if not tickers:
-    st.warning("⚠️ No tickers fetched from Finviz.")
+    st.warning("No tickers fetched from Finviz.")
 else:
     for ticker in tickers:
+        ticker = ticker.strip()
         try:
             df = yf.download(ticker, interval="5m", period="1d", progress=False)
             if df.empty:
+                st.warning(f"No data for {ticker}")
                 continue
 
             df.dropna(inplace=True)
@@ -91,6 +96,8 @@ else:
 
                 fig = plot_candlestick(df, ticker, pattern_points)
                 st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info(f"No pattern found for {ticker}")
 
         except Exception as e:
             st.error(f"Error processing {ticker}: {e}")
