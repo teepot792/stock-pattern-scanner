@@ -6,3 +6,4 @@ scipy
 matplotlib
 plotly
 finvizfinance
+html5lib
