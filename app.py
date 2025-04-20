@@ -11,17 +11,28 @@ def detect_u_pattern(df):
     for i in range(30, len(df) - 10):
         window = df.iloc[i - 30:i + 10]
 
-        min1 = window['Low'].iloc[:10].idxmin()
-        max1 = window['High'].iloc[10:20].idxmax()
-        min2 = window['Low'].iloc[20:30].idxmin()
-        last_price = window['Close'].iloc[-1]
+        min1_idx = window['Low'].iloc[:10].idxmin()
+        max1_idx = window['High'].iloc[10:20].idxmax()
+        min2_idx = window['Low'].iloc[20:30].idxmin()
+        latest_idx = window.index[-1]
 
-        if (min1 < max1 < min2 and
-            window['Low'].loc[min1] < window['Low'].loc[min2] and
-            last_price <= (window['Low'].loc[min1] + window['Low'].loc[min2]) / 2 and
-            last_price >= window['Low'].loc[min1]):
-            pattern_points.append((min1, max1, min2, i + 9))
+        try:
+            min1_price = window.loc[min1_idx, 'Low']
+            max1_price = window.loc[max1_idx, 'High']
+            min2_price = window.loc[min2_idx, 'Low']
+            last_price = window.iloc[-1]['Close']
+        except:
+            continue
 
+        midpoint = (min1_price + min2_price) / 2
+
+        if (min1_idx < max1_idx < min2_idx and
+            min1_price < min2_price and
+            midpoint <= last_price <= min2_price):
+            pattern_points.append((df.index.get_loc(min1_idx),
+                                   df.index.get_loc(max1_idx),
+                                   df.index.get_loc(min2_idx),
+                                   df.index.get_loc(latest_idx)))
     return pattern_points
 
 # --- Candlestick Plot ---
@@ -58,7 +69,7 @@ tickers = st.text_input("Enter tickers (comma-separated)", "NVDA,AMD,SOUN").uppe
 for ticker in tickers:
     ticker = ticker.strip()
     try:
-        df = yf.download(ticker, interval="5m", period="5d", progress=False)
+        df = yf.download(ticker, interval="5m", period="1d", progress=False)
         if df.empty:
             st.warning(f"No data for {ticker}")
             continue
