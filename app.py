@@ -46,7 +46,7 @@ for ticker, matches, df in results:
     order_cap_shares = int(max_order // latest_price)
     shares = min(raw_shares, order_cap_shares, max_shares)
 
-        try:
+try:
         latest_price = float(df['Close'].iloc[-1])
     except Exception:
         st.markdown("⚠️ Could not fetch latest price for this ticker.")
