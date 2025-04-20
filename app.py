@@ -11,28 +11,30 @@ def detect_u_pattern(df):
     for i in range(30, len(df) - 10):
         window = df.iloc[i - 30:i + 10]
 
-        min1_idx = window['Low'].iloc[:10].idxmin()
-        max1_idx = window['High'].iloc[10:20].idxmax()
-        min2_idx = window['Low'].iloc[20:30].idxmin()
-        latest_idx = window.index[-1]
-
         try:
-            min1_price = window.loc[min1_idx, 'Low']
-            max1_price = window.loc[max1_idx, 'High']
-            min2_price = window.loc[min2_idx, 'Low']
-            last_price = window.iloc[-1]['Close']
-        except:
+            min1_loc = window['Low'].iloc[:10].idxmin()
+            max1_loc = window['High'].iloc[10:20].idxmax()
+            min2_loc = window['Low'].iloc[20:30].idxmin()
+
+            min1_index = window.index.get_loc(min1_loc)
+            max1_index = window.index.get_loc(max1_loc)
+            min2_index = window.index.get_loc(min2_loc)
+
+            min1_price = window.loc[min1_loc, 'Low']
+            min2_price = window.loc[min2_loc, 'Low']
+            last_price = window['Close'].iloc[-1]
+            midpoint = (min1_price + min2_price) / 2
+
+            if (min1_index < max1_index < min2_index and
+                min1_price < min2_price and
+                midpoint <= last_price <= min2_price):
+                pattern_points.append((i - 30 + min1_index,
+                                       i - 30 + max1_index,
+                                       i - 30 + min2_index,
+                                       i + 9))
+        except Exception:
             continue
 
-        midpoint = (min1_price + min2_price) / 2
-
-        if (min1_idx < max1_idx < min2_idx and
-            min1_price < min2_price and
-            midpoint <= last_price <= min2_price):
-            pattern_points.append((df.index.get_loc(min1_idx),
-                                   df.index.get_loc(max1_idx),
-                                   df.index.get_loc(min2_idx),
-                                   df.index.get_loc(latest_idx)))
     return pattern_points
 
 # --- Candlestick Plot ---
@@ -69,7 +71,7 @@ tickers = st.text_input("Enter tickers (comma-separated)", "NVDA,AMD,SOUN").uppe
 for ticker in tickers:
     ticker = ticker.strip()
     try:
-        df = yf.download(ticker, interval="5m", period="1d", progress=False)
+        df = yf.download(ticker, interval="5m", period="5d", progress=False)
         if df.empty:
             st.warning(f"No data for {ticker}")
             continue
