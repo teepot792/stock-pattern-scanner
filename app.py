@@ -37,24 +37,25 @@ def get_finviz_tickers():
     try:
         for page in range(0, 2):
             url = f"https://finviz.com/screener.ashx?v=111&f=cap_microunder,sh_float_u10,sh_short_o10&ft=4&r={1 + page * 20}"
+            st.text(f"Scraping: {url}")  # Debug
+
             response = requests.get(url, headers=headers, proxies=proxies, timeout=10)
             soup = BeautifulSoup(response.content, "html.parser")
 
-            table = soup.find("table", class_="table-light")
-            if not table:
-                continue
-
-            rows = table.find_all("tr", class_="table-dark-row") + table.find_all("tr", class_="table-light-row")
-            for row in rows:
-                cols = row.find_all("td")
-                if len(cols) > 1:
-                    ticker = cols[1].text.strip()
+            # Find all table cells in the screener result
+            all_links = soup.select('table td a.screener-link-primary')
+            for link in all_links:
+                ticker = link.text.strip()
+                if ticker.isalpha():
                     tickers.append(ticker)
 
-        return list(set(tickers))
+        tickers = list(set(tickers))  # Remove duplicates
+        st.text(f"✅ Found tickers: {tickers}")  # Debug
+        return tickers
     except Exception as e:
         st.error(f"Error fetching tickers from Finviz: {e}")
         return []
+
 
 # --- Pattern Detection Logic ---
 def detect_u_pattern(df):
