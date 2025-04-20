@@ -16,11 +16,11 @@ def get_finviz_tickers():
         response = requests.get(url, headers=headers)
         soup = BeautifulSoup(response.content, "html.parser")
 
-        table = soup.find("table", class_="table-light")
-        if not table:
+        table = soup.find_all("table")
+        if len(table) < 8:
             continue
 
-        rows = table.find_all("tr", class_="table-dark-row") + table.find_all("tr", class_="table-light-row")
+        rows = table[7].find_all("tr", class_="table-dark-row-cp") + table[7].find_all("tr", class_="table-light-row-cp")
         for row in rows:
             cols = row.find_all("td")
             if len(cols) > 1:
