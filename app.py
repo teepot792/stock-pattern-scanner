@@ -2,45 +2,46 @@ import streamlit as st
 import requests
 from bs4 import BeautifulSoup
 
-st.set_page_config(page_title="Low Float Ticker List", layout="wide")
-st.title("📈 Finviz Screener: Micro Cap Stocks with Low Float & High Short Interest")
-
-# --- Finviz Scraper Function ---
-def get_finviz_tickers():
-    tickers = []
-    base_url = "https://finviz.com/screener.ashx"
-    params = {
-        "v": "111",
-        "f": "cap_microunder,sh_float_u10,sh_short_o10",
-        "ft": "4",
-        "r": "1"
-    }
+# --- Function to fetch tickers from Finviz ---
+def fetch_finviz_tickers():
+    url = "https://finviz.com/screener.ashx?v=111&f=cap_microunder,sh_float_u10,sh_short_o10&ft=4"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+        "User-Agent": "Mozilla/5.0"
     }
+
+    response = requests.get(url, headers=headers)
+    soup = BeautifulSoup(response.text, "html.parser")
+
+    tickers = []
 
     try:
-        response = requests.get(base_url, params=params, headers=headers)
-        soup = BeautifulSoup(response.text, 'html5lib')
-        table = soup.find("table", class_="table-light")
-        rows = table.find_all("tr", valign="top")
+        table = soup.find_all("table", class_="table-light")[0]
+        rows = table.find_all("tr")[1:]  # skip header
+
         for row in rows:
-            cols = row.find_all("td")
-            if len(cols) > 1:
-                tickers.append(cols[1].text.strip())
+            cells = row.find_all("td")
+            if len(cells) > 1:
+                ticker = cells[1].text.strip()
+                tickers.append(ticker)
     except Exception as e:
         st.error(f"Error fetching tickers from Finviz: {e}")
 
     return tickers
 
-# --- App Logic ---
-tickers = get_finviz_tickers()
+
+# --- Streamlit App UI ---
+st.set_page_config(page_title="Low Float Stock List", layout="wide")
+st.title("📈 Low Market Cap, Low Float, High Short Interest Stocks")
+st.caption("Pulled live from Finviz screener")
+
+tickers = fetch_finviz_tickers()
 
 if tickers:
-    st.success(f"✅ {len(tickers)} tickers found from Finviz")
-    st.write("### Ticker List:")
+    st.success(f"✅ Found {len(tickers)} tickers")
     for ticker in tickers:
-        t212_link = f"https://www.trading212.com/trading-instruments/invest/{ticker}.US"
-        st.markdown(f"- **{ticker}** → [🔗 Trading212]({t212_link})")
+        st.markdown(
+            f"- **{ticker}** [🔗 Trading212](https://www.trading212.com/trading-instruments/invest/{ticker}.US)",
+            unsafe_allow_html=True
+        )
 else:
     st.warning("No tickers found or failed to load data.")
