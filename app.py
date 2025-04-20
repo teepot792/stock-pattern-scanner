@@ -42,20 +42,27 @@ def get_finviz_tickers():
             response = requests.get(url, headers=headers, proxies=proxies, timeout=10)
             soup = BeautifulSoup(response.content, "html.parser")
 
-            # Find all table cells in the screener result
-            all_links = soup.select('table td a.screener-link-primary')
-            for link in all_links:
-                ticker = link.text.strip()
-                if ticker.isalpha():
-                    tickers.append(ticker)
+            # Find the screener table
+            table = soup.find("table", class_="table-light")
+            if not table:
+                st.text("❌ No screener table found.")
+                continue
 
-        tickers = list(set(tickers))  # Remove duplicates
-        st.text(f"✅ Found tickers: {tickers}")  # Debug
+            rows = table.find_all("tr")[1:]  # Skip header
+            for row in rows:
+                cols = row.find_all("td")
+                if len(cols) >= 2:
+                    ticker = cols[1].text.strip()
+                    if ticker.isalpha():
+                        tickers.append(ticker)
+
+        tickers = list(set(tickers))  # De-duplicate
+        st.text(f"✅ Final ticker list: {tickers}")
         return tickers
+
     except Exception as e:
         st.error(f"Error fetching tickers from Finviz: {e}")
         return []
-
 
 # --- Pattern Detection Logic ---
 def detect_u_pattern(df):
