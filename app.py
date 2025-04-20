@@ -2,46 +2,58 @@ import streamlit as st
 import requests
 from bs4 import BeautifulSoup
 
-def fetch_finviz_tickers():
-    url = "https://finviz.com/screener.ashx?v=111&f=cap_microunder,sh_float_u10,sh_short_o10&ft=4"
-    headers = {
-        "User-Agent": "Mozilla/5.0"
-    }
+def fetch_all_finviz_tickers():
+    base_url = "https://finviz.com/screener.ashx"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    page = 1
+    all_tickers = []
 
-    try:
-        response = requests.get(url, headers=headers)
-        soup = BeautifulSoup(response.text, "html.parser")
+    while True:
+        params = {
+            "v": "111",
+            "f": "cap_microunder,sh_float_u10,sh_short_o10",
+            "ft": "4",
+            "r": str((page - 1) * 20 + 1)
+        }
 
-        # Find all <a> tags inside screener table area with link format to quote
-        ticker_links = soup.select('a.screener-link')
+        try:
+            res = requests.get(base_url, headers=headers, params=params)
+            soup = BeautifulSoup(res.text, "html.parser")
 
-        tickers = []
-        for link in ticker_links:
-            href = link.get('href')
-            if href and href.startswith("quote.ashx?t="):
-                ticker = link.text.strip()
-                if ticker.isalpha() and ticker not in tickers:
-                    tickers.append(ticker)
+            table = soup.find("table", class_="table-light")
+            if not table:
+                break
 
-        if not tickers:
-            raise ValueError("No tickers extracted. Page structure may have changed.")
+            rows = table.find_all("tr")[1:]  # Skip header
+            if not rows:
+                break
 
-        return tickers
+            for row in rows:
+                cols = row.find_all("td")
+                if len(cols) > 1:
+                    ticker_tag = cols[1].find("a")
+                    if ticker_tag:
+                        ticker = ticker_tag.text.strip()
+                        all_tickers.append(ticker)
 
-    except Exception as e:
-        st.error(f"Error fetching tickers from Finviz: {e}")
-        return []
+            page += 1
 
-# --- Streamlit UI ---
-st.set_page_config(page_title="Low Float Screener", layout="wide")
-st.title("📉 Finviz Screener - Low Float + High Short Stocks")
-st.caption("Filtering: Market Cap < $20M, Float < 10M, Short % > 10%")
+        except Exception as e:
+            st.error(f"Error fetching tickers from Finviz: {e}")
+            break
 
-tickers = fetch_finviz_tickers()
+    return list(set(all_tickers))  # Remove duplicates
+
+
+# --- Streamlit App ---
+st.set_page_config(page_title="Finviz Screener", layout="wide")
+st.title("📊 Finviz Screener: Micro Cap, Low Float, High Short Interest")
+
+tickers = fetch_all_finviz_tickers()
 
 if tickers:
-    st.success(f"✅ Found {len(tickers)} tickers:")
-    for ticker in tickers:
-        st.markdown(f"- **{ticker}** [🔗 Trading212](https://www.trading212.com/trading-instruments/invest/{ticker}.US)", unsafe_allow_html=True)
+    st.success(f"✅ Found {len(tickers)} tickers")
+    for t in tickers:
+        st.markdown(f"- **{t}** [🔗 Trading212](https://www.trading212.com/trading-instruments/invest/{t}.US)", unsafe_allow_html=True)
 else:
-    st.warning("No tickers found.")
+    st.warning("⚠️ No tickers found.")
