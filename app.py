@@ -46,16 +46,19 @@ for ticker, matches, df in results:
     order_cap_shares = int(max_order // latest_price)
     shares = min(raw_shares, order_cap_shares, max_shares)
 
-try:
+    # get the very latest close price
+    try:
         latest_price = float(df['Close'].iloc[-1])
     except Exception:
         st.markdown("⚠️ Could not fetch latest price for this ticker.")
-        continue
+        continue  # skip to the next ticker
 
-    raw_shares       = int(budget    // latest_price)
+    # calculate how many shares you could buy
+    raw_shares = int(budget // latest_price)
     order_cap_shares = int(max_order // latest_price)
-    shares           = min(raw_shares, order_cap_shares, max_shares)
+    shares = min(raw_shares, order_cap_shares, max_shares)
 
+    # display
     st.markdown(f"**Latest Price**: ${latest_price:.2f}")
     st.markdown(f"**You could buy up to `{shares}` shares** of `{ticker}` with these constraints:")
     st.markdown(f"- Budget: ${budget:.2f}")
