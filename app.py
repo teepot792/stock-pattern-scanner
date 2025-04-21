@@ -1,76 +1,71 @@
 import yfinance as yf
+import numpy as np
 import pandas as pd
-import streamlit as st
-from datetime import datetime, timedelta
+import matplotlib.pyplot as plt
+from scipy.signal import argrelextrema
 
-# Set up the page
-st.set_page_config(page_title="Low-Float Momentum Scanner", layout="wide")
-st.title("📈 Low-Float Momentum Scanner")
-st.caption("Detects fast-moving, low-float, low-market-cap stocks in real time.")
+# SETTINGS
+TICKERS = ['VERB', 'SINT', 'COSM', 'TOP', 'HCDI', 'HUDI']  # Replace with your low-float list
+START_DATE = "2023-01-01"
+END_DATE = "2024-01-01"
+SMOOTHING_WINDOW = 3
+WINDOW_SIZE = 50
+TOLERANCE = 0.05  # For halfway level match
 
-# Auto-refresh settings
-REFRESH_INTERVAL_HOURS = 24
+results = []
 
-# Track last refresh time in session state
-if "last_refresh" not in st.session_state:
-    st.session_state["last_refresh"] = datetime.now()
+def detect_pattern(ticker):
+    df = yf.download(ticker, start=START_DATE, end=END_DATE)
+    if df.empty or len(df) < WINDOW_SIZE:
+        return None
 
-# Show last scan time
-st.caption(f"Last scanned: {st.session_state['last_refresh'].strftime('%Y-%m-%d %H:%M:%S')}")
+    df['Smoothed'] = df['Close'].rolling(SMOOTHING_WINDOW).mean()
+    df.dropna(inplace=True)
+    prices = df['Smoothed'].values
+    dates = df.index
+    matches = []
 
-# Trigger rerun if it's been over 24 hours
-if datetime.now() - st.session_state["last_refresh"] > timedelta(hours=REFRESH_INTERVAL_HOURS):
-    st.session_state["last_refresh"] = datetime.now()
-    st.experimental_rerun()
+    for i in range(len(prices) - WINDOW_SIZE):
+        window = prices[i:i + WINDOW_SIZE]
+        local_min = argrelextrema(window, np.less, order=2)[0]
+        local_max = argrelextrema(window, np.greater, order=2)[0]
 
-# Input tickers
-tickers_input = st.text_input("Enter tickers (comma-separated):", "HOLO,GNS,ILAG,HUDI,TOP,MEGL,SNTG")
-tickers = [t.strip().upper() for t in tickers_input.split(",")]
+        if len(local_min) >= 2 and len(local_max) >= 2:
+            u1_bottom_idx = local_min[0]
+            u1_top_idx = local_max[0]
 
-def get_momentum_stocks(ticker_list):
-    results = []
+            if u1_bottom_idx < u1_top_idx:
+                u1_bottom = window[u1_bottom_idx]
+                u1_top = window[u1_top_idx]
+                halfway_level = (u1_bottom + u1_top) / 2
 
-    for ticker in ticker_list:
-        try:
-            stock = yf.Ticker(ticker)
-            hist = stock.history(period="1d", interval="5m")
+                u2_bottom_idx = local_min[1]
+                if u2_bottom_idx > u1_top_idx:
+                    u2_top_candidates = [idx for idx in local_max if idx > u2_bottom_idx]
+                    if u2_top_candidates:
+                        u2_top_idx = u2_top_candidates[0]
+                        post_u2 = window[u2_top_idx:]
+                        if len(post_u2) > 3:
+                            final_price = post_u2[-1]
+                            if abs(final_price - halfway_level) / halfway_level < TOLERANCE:
+                                match_date = dates[i].strftime('%Y-%m-%d')
+                                matches.append((match_date, i))
 
-            if len(hist) < 2:
-                continue
+    if matches:
+        return {'ticker': ticker, 'matches': matches}
+    else:
+        return None
 
-            # Momentum: price jump in last 5 mins
-            last_close = hist["Close"].iloc[-1]
-            prev_close = hist["Close"].iloc[-2]
-            percent_change = ((last_close - prev_close) / prev_close) * 100
+# RUN SCAN
+for ticker in TICKERS:
+    print(f"Scanning {ticker}...")
+    result = detect_pattern(ticker)
+    if result:
+        results.append(result)
 
-            if percent_change > 5:  # Momentum threshold
-                info = stock.info
-                market_cap = info.get("marketCap", 0)
-                float_shares = info.get("floatShares", 0)
-                shares_outstanding = info.get("sharesOutstanding", 0)
-
-                if market_cap and market_cap < 20_000_000 and float_shares and float_shares < 10_000_000:
-                    trading212_url = f"https://www.trading212.com/en/invest/instruments/{ticker}"
-                    results.append({
-                        "Ticker": ticker,
-                        "Price": round(last_close, 4),
-                        "% Change (5m)": round(percent_change, 2),
-                        "Market Cap": market_cap,
-                        "Float": float_shares,
-                        "Outstanding": shares_outstanding,
-                        "Trading212 Link": trading212_url
-                    })
-        except Exception as e:
-            st.warning(f"Error with {ticker}: {e}")
-
-    return pd.DataFrame(results)
-
-# Run scanner automatically
-data = get_momentum_stocks(tickers)
-
-# Show results
-if not data.empty:
-    data["Trading212 Link"] = data["Trading212 Link"].apply(lambda x: f"[Link]({x})")
-    st.dataframe(data.to_html(escape=False, index=False), unsafe_allow_html=True)
-else:
-    st.info("No momentum stocks found right now.")
+# SHOW RESULTS
+print("\nPattern Matches:")
+for res in results:
+    print(f"\n{res['ticker']}:")
+    for match_date, _ in res['matches']:
+        print(f"  - Pattern detected starting around: {match_date}")
